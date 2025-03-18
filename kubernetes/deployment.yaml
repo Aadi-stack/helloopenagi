@@ -1,0 +1,139 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openagi-builder
+  labels:
+    app: openagi-builder
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: openagi-builder
+  template:
+    metadata:
+      labels:
+        app: openagi-builder
+    spec:
+      containers:
+      - name: openagi-builder
+        image: openagi-builder:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: openagi-builder-secrets
+              key: database-url
+        - name: NEXTAUTH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: openagi-builder-secrets
+              key: nextauth-secret
+        - name: NEXTAUTH_URL
+          value: "https://openagi-builder.example.com"
+        - name: GITHUB_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: openagi-builder-secrets
+              key: github-client-id
+        - name: GITHUB_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: openagi-builder-secrets
+              key: github-client-secret
+        - name: FACEBOOK_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: openagi-builder-secrets
+              key: facebook-client-id
+        - name: FACEBOOK_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: openagi-builder-secrets
+              key: facebook-client-secret
+        resources:
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: openagi-builder-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: openagi-builder
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openagi-builder
+spec:
+  selector:
+    app: openagi-builder
+  ports:
+  - port: 80
+    targetPort: 3000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openagi-builder
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  rules:
+  - host: openagi-builder.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: openagi-builder
+            port:
+              number: 80
+  tls:
+  - hosts:
+    - openagi-builder.example.com
+    secretName: openagi-builder-tls
+
